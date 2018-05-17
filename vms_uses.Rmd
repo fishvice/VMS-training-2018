@@ -1,0 +1,39 @@
+---
+title: "Applications of VMS data"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Applications of VMS data
+
+- Beyond its immediate use (monitoring), VMS data is a valuable source of information
+
+VMS data can be used to
+- Describe the spatial distribution of fishing effort and of catch
+- Evaluate changes in the distribution of effort through time
+- Examine the behaviour of fishing vessels
+- Evaluate the level of compliance with spatial closures
+- Study the impact of fishing gear on sea bottom habitats
+
+## Examples of uses of VMS data in Iceland and how this can be adapted for local use
+   - Mapping effort of different fishing fleets/gears
+   - Overlap with cold-water corals (protected features)
+   - Identify Nephrops fishing areas and monitor the movement of the fleet
+
+## Evaluating the impact of fishing on cold-water corals
+- In the North Atlantic /Lophelia pertusa/ is the main reef-forming coral
+
+![](./images/lophelia.jpg)
+
+- /Lophelia/ reefs are fragile and can be damaged by bottom trawlers.
+
+![](./images/marks.jpg)
+
+- We used VMS+ELB data to
+  - Evaluate the distribution of fishing effort near coral areas
+  - Design spatial closures to protect coral habitats
+  - Minimise conflicts with the fishery
+
+![](./images/lonsdjup.png)
