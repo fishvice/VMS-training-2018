@@ -4,3 +4,5 @@ extras
 *.rda
 *.rds
 data-raw
+*.html
+*.pdf
