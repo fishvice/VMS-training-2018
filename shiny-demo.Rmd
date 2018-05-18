@@ -1,0 +1,260 @@
+---
+title: "VMS R Demo"
+output: flexdashboard::flex_dashboard
+runtime: shiny
+---
+
+
+```{r, eval = FALSE}
+# ------------------------------------------------------------------------------
+# data preparation
+library(tidyverse)
+library(mar)
+library(lubridate)
+library(gisland)
+#attach("/net/hafkaldi/export/home/haf/einarhj/prj2/vms2/data/shapes.rda")
+attach("/net/hafkaldi/export/home/haf/einarhj/prj2/vms2/data/older/shapes.rda")
+harbours <- fortify(harbours.sp)
+x <- data_frame(group = unique(harbours$group)) %>% 
+  mutate(id = 1:n())
+harbours <- 
+  harbours %>% select(-id) %>% 
+  left_join(x) %>% 
+  as.data.frame() %>% 
+  df_2_spdf(col.names = c("long", "lat", "group", "id"))
+
+if(!dir.exists) dir.create("data")
+
+con <- connect_mar()
+VID <-
+  afli_stofn(con) %>% 
+  filter(ar %in% 2014:2017,
+         veidarf == 6) %>% 
+  collect(n = Inf) %>% 
+  pull(skipnr) %>% 
+  unique()
+VID <- as.character(VID)
+tbl_mar(con, "stk.stk_vms_v") %>% 
+  mutate(year = to_number(to_char(posdate, 'YYYY')),
+         lon = poslon * 45 / atan(1),
+         lat = poslat * 45 / atan(1),
+         heading = heading * 45 / atan(1),
+         speed = speed * 1.852) %>%
+  filter(year %in% c(2014:2017),
+         between(lon, -28, -18),
+         between(lat, 65.5, 67.5),
+         skip_nr %in% VID) %>%
+  select(year, mobileid, vid = skip_nr, date = posdate, lon, lat,
+         speed, heading, in_out_of_harbor, harborid) %>%
+  collect(n = Inf) %>% 
+  mutate(p.harbour = gisland::geo_inside(lon, lat, harbours, "ID"),
+         vid = as.integer(vid),
+         month = month(date)) %>% 
+  filter(is.na(p.harbour)) %>% 
+  write_rds(path = "data/vms.rda")
+```
+
+
+```{r global, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(viridis)
+library(leaflet)
+library(leaflet.extras)
+library(raster)
+grade <- function(x, dx) {
+  brks <- seq(floor(min(x)), ceiling(max(x)),dx)
+  ints <- findInterval(x, brks, all.inside = TRUE)
+  x <- (brks[ints] + brks[ints + 1]) / 2
+  return(x)
+}
+
+vms <-
+  read_rds("data/vms.rda") %>% 
+  filter(speed <= 15)
+
+speed <-
+  vms %>%  
+  mutate(speed = grade(speed, 0.5)) %>% 
+  group_by(speed) %>% 
+  count()
+
+
+
+attach("/net/hafkaldi/export/home/haf/einarhj/prj2/vms2/data/older/shapes.rda")
+regl2 <- regl[regl$year == 2008 & regl$nr == 752 | regl$heiti == "Sporðagrunn",]
+```
+
+Sidebar {.sidebar data-width=175}
+=====================================
+
+```{r}
+sidebarPanel(sliderInput(inputId = "Range",
+                         label = "Select speed range",
+                         min = 0, 
+                         max = 15, 
+                         step = 0.5,
+                         value = c(2, 14)),
+             width = 30)
+#numericInput(inputId = "Grade", label = "Grade", value = 0.1, min = 0.001, max = 0.5, step = 0.001,
+#  width = NULL)
+radioButtons(inputId = "Grade", label = "Choose decimal degrees",
+             choices = c(0.0025, 0.005, 0.01, 0.05, 0.1, 0.5), selected = 0.1)
+#selectInput(inputId = "Grade", label = "Grade:",
+#            choices = seq(0.01, 0.1, by = 0.01), selected = 0.10)
+```
+
+
+
+Panel 1
+=====================================  
+
+Column 
+-------------------------------------
+
+### Speed histogram
+
+```{r}
+renderPlot({
+  speed %>% 
+    mutate(ok = if_else(speed >= min(input$Range) & speed <= max(input$Range), TRUE, FALSE)) %>% 
+    ggplot(aes(speed, n, fill = ok)) +
+    theme_grey(base_size = 18) +
+    geom_col() +
+    scale_fill_brewer(palette = "Set1")
+})
+```
+
+### Static image
+
+```{r}
+renderPlot({
+  vms %>% 
+    filter(speed >= min(input$Range) & speed <= max(input$Range)) %>% 
+    mutate(lon = grade(lon, dx = as.numeric(input$Grade)),
+           lat = grade(lat, dx = as.numeric(input$Grade)/2)) %>% 
+    group_by(lon, lat) %>% 
+    summarise(no.pings = n()) %>% 
+    ungroup() %>% 
+    ggplot() +
+    theme_bw() +
+    geom_raster(aes(lon, lat, fill = no.pings)) +
+    geom_polygon(data = geo::island, aes(lon, lat), fill = "grey") +
+    scale_fill_viridis(option = "B", trans = "reverse") +
+    coord_quickmap(xlim = range(vms$lon), ylim = range(vms$lat)) +
+    labs(x = NULL, y = NULL)
+})
+```
+
+Column 
+-------------------------------------
+
+### Number of pings
+
+```{r}
+renderPlot({
+  vms %>% 
+    filter(speed >= min(input$Range) & speed <= max(input$Range)) %>% 
+    mutate(lon = grade(lon, dx = as.numeric(input$Grade)),
+           lat = grade(lat, dx = as.numeric(input$Grade)/2)) %>% 
+    group_by(year, month) %>% 
+    summarise(effort = n()) %>% 
+    ggplot(aes(month, effort, colour = factor(year))) +
+    theme_grey(base_size = 18) +
+    scale_color_brewer(palette = "Set1") +
+    geom_point() +
+    geom_line(lwd = 1) +
+    expand_limits(y = 0) +
+    scale_x_continuous(breaks = 1:12) +
+    labs(colour = "Year")
+})
+```
+
+### Number of distinct vessels
+
+```{r}
+renderPlot({
+  vms %>% 
+    filter(speed >= min(input$Range) & speed <= max(input$Range)) %>% 
+    group_by(year, month) %>% 
+    summarise(vid = n_distinct(vid)) %>% 
+    ggplot(aes(month, vid, colour = factor(year))) +
+    theme_grey(base_size = 18) +
+    scale_colour_brewer(palette = "Set1") +
+    geom_point() +
+    geom_line(lwd = 1) +
+    expand_limits(y = 0) +
+    scale_x_continuous(breaks = 1:12) +
+    labs(colour = "Year")
+})
+```
+
+Leaflet
+===================================== 
+
+### Number of pings
+
+```{r}
+renderLeaflet({
+  
+  sjk300 <- "http://www.hafro.is/~einarhj/tiles/S300/{z}/{x}/{y}.png"
+  sjk200 <- "http://www.hafro.is/~einarhj/tiles/IS_25_26/{z}/{x}/{y}.png"
+
+
+  vmsr <- 
+    vms %>% 
+    filter(speed >= min(input$Range) & speed <= max(input$Range)) %>% 
+    mutate(lon = grade(lon, dx = as.numeric(input$Grade)),
+           lat = grade(lat, dx = as.numeric(input$Grade)/2)) %>% 
+    group_by(lon, lat) %>% 
+    summarise(no.pings = n()) %>% 
+    ungroup() %>% 
+    rasterFromXYZ() 
+  crs(vmsr) <- sp::CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+  #vmsr <- projectRasterForLeaflet(vmsr)
+  inf <- inferno(12, alpha = 1, begin = 0, end = 1, direction = -1)
+  #pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(vmsr), na.color = "transparent")
+  pal <- colorNumeric(inf, values(vmsr), na.color = "transparent")
+  leaflet() %>% 
+    addTiles(urlTemplate = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+             group = "Image",
+             attribution = 'Data source: <a href="https://www.hafogvatn.is">Marine Rearch Institute</a>') %>% 
+    addTiles(urlTemplate = sjk200, group = "Chart", options = tileOptions(minZoom = 4, maxZoom = 11, tms = TRUE)) %>%
+    addTiles(group = "OSM") %>% 
+    addPolygons(data = regl2, group = "Closures", opacity = 0.2, color = "white") %>% 
+    addRasterImage(vmsr, colors = pal, opacity = 0.8, group = "VMS", project = TRUE) %>% 
+    addLegend(pal = pal, values = values(vmsr),
+              title = "Number of pings") %>% 
+    addLayersControl(baseGroups = c("Image", "Chart", "OSM"),
+                     overlayGroups = c("VMS", "Closures"),
+                     options = layersControlOptions(collapsed = FALSE))
+})
+```
+
+Leaflet
+===================================== 
+
+### Number of pings
+
+```{r}
+renderLeaflet({
+  
+  sjk300 <- "http://www.hafro.is/~einarhj/tiles/S300/{z}/{x}/{y}.png"
+  sjk200 <- "http://www.hafro.is/~einarhj/tiles/IS_25_26/{z}/{x}/{y}.png"
+
+  vms2 <- 
+    vms %>% 
+    filter(speed >= 2 & speed <= 4.5)
+  leaflet() %>% 
+    addTiles(urlTemplate = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+             group = "Image",
+             attribution = 'Data source: <a href="https://www.hafogvatn.is">Marine Rearch Institute</a>') %>% 
+    addTiles(urlTemplate = sjk200, group = "Chart", options = tileOptions(minZoom = 4, maxZoom = 11, tms = TRUE)) %>%
+    addTiles(group = "OSM") %>% 
+    addPolygons(data = regl2, group = "Closures", opacity = 0.2, color = "red") %>% 
+    addWebGLHeatmap(data = vms2, lng=~lon, lat=~lat, size = 1000) %>% 
+    addLayersControl(baseGroups = c("Image", "Chart", "OSM"),
+                     overlayGroups = c("VMS", "Closures"),
+                     options = layersControlOptions(collapsed = FALSE))
+})
+```
