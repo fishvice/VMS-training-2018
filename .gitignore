@@ -3,3 +3,4 @@ extras
 *.Rproj
 *.rda
 *.rds
+data-raw

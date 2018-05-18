@@ -6,6 +6,8 @@ runtime: shiny
 
 
 ```{r, eval = FALSE}
+# TODO: Move auxillary shapefiles into data directory
+#       
 # ------------------------------------------------------------------------------
 # data preparation
 library(tidyverse)
@@ -51,7 +53,7 @@ tbl_mar(con, "stk.stk_vms_v") %>%
          vid = as.integer(vid),
          month = month(date)) %>% 
   filter(is.na(p.harbour)) %>% 
-  write_rds(path = "data/vms.rda")
+  write_rds(path = "data/shiny-vms-demo.rds")
 ```
 
 
@@ -70,7 +72,7 @@ grade <- function(x, dx) {
 }
 
 vms <-
-  read_rds("data/vms.rda") %>% 
+  read_rds("data/shiny-vms-demo.rds") %>% 
   filter(speed <= 15)
 
 speed <-
