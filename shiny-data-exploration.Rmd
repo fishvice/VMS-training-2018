@@ -1,0 +1,248 @@
+---
+title: "VMS R Demo"
+output: flexdashboard::flex_dashboard
+runtime: shiny
+---
+
+```{r global, include=FALSE}
+library(raster)
+library(sf)
+library(leaflet)
+library(lubridate)
+library(viridis)
+#library(leaflet.extras)
+library(tidyverse)
+library(maps)
+library(mapdata)
+
+grade <- function(x, dx) {
+  brks <- seq(floor(min(x)), ceiling(max(x)),dx)
+  ints <- findInterval(x, brks, all.inside = TRUE)
+  x <- (brks[ints] + brks[ints + 1]) / 2
+  return(x)
+}
+```
+
+```{r}
+# Read in data
+vms <-
+  #read_rds("data/sierra-leone_mail-from-stephen_2015-05-14.rds") %>% 
+  read_rds("data/old-vms-training_ghana.rds") %>% 
+  mutate(year = year(time),
+         month = month(time)) %>% 
+  filter(year %in% 2015:2021,
+         speed <= 15,
+         between(lon, -20, 10),
+         between(lat, 0, 40)) %>% 
+  dplyr::select(time, year, month, lon, lat, speed, publicdeviceid = call) %>% 
+  drop_na()
+```
+
+```{r}
+speed <-
+  vms %>%  
+  mutate(speed = grade(speed, 0.5)) %>% 
+  group_by(speed) %>% 
+  count()
+```
+
+```{r}
+eez <- read_sf("/net/hafkaldi/export/home/haf/einarhj/prj2/unuftp/VMS-training-2018/data-raw/shapes/eez.shp")
+eez <-
+  eez %>%
+  filter(sovereign1 %in% c("Guinea", "Sierra Leone", "Liberia", "Ivory Coast", "Ghana", "Togo"))
+eez.sp <- as(eez, 'Spatial')
+```
+
+
+Sidebar {.sidebar data-width=175}
+=====================================
+
+```{r}
+sidebarPanel(sliderInput(inputId = "Range",
+                         label = "Select speed range",
+                         min = 0, 
+                         max = 15, 
+                         step = 0.5,
+                         value = c(2, 14)),
+             width = 30)
+sidebarPanel(sliderInput(inputId = "Lon",
+                         label = "Select lon range",
+                         min = -20,
+                         max = 10,
+                         #min = floor(min(vms$lon)), 
+                         #max = ceiling(max(vms$lon)), 
+                         step = 0.5,
+                         value = c(-20, 40)),
+             width = 30)
+sidebarPanel(sliderInput(inputId = "Lat",
+                         label = "Select lat range",
+                         min = 0,
+                         max = 40,
+                         step = 0.5,
+                         value = c(0, 40)),
+             width = 30)
+sidebarPanel(sliderInput(inputId = "Maxz",
+                         label = "Max z value",
+                         min = 0.9,
+                         max = 1,
+                         step = 0.01,
+                         value = c(0.9, 1)),
+             width = 30)
+#numericInput(inputId = "Grade", label = "Grade", value = 0.1, min = 0.001, max = 0.5, step = 0.001,
+#  width = NULL)
+radioButtons(inputId = "Grade", label = "Choose decimal degrees",
+             choices = c(0.0025, 0.005, 0.01, 0.05, 0.1, 0.5), selected = 0.5)
+#selectInput(inputId = "Grade", label = "Grade:",
+#            choices = seq(0.01, 0.1, by = 0.01), selected = 0.10)
+```
+
+
+
+Panel 1
+=====================================  
+
+Column 
+-------------------------------------
+
+### Speed histogram
+
+```{r}
+renderPlot({
+  speed %>% 
+    mutate(ok = if_else(speed >= min(input$Range) & speed <= max(input$Range), TRUE, FALSE)) %>% 
+    ggplot(aes(speed, n, fill = ok)) +
+    theme_grey(base_size = 18) +
+    geom_col() +
+    scale_fill_brewer(palette = "Set1")
+})
+```
+
+### Static image
+
+```{r}
+renderPlot({
+  
+  vms2 <- 
+    vms %>% 
+    filter(speed >= min(input$Range),
+           speed <= max(input$Range),
+           lon >= min(input$Lon),
+           lon <= max(input$Lon),
+           lat >= min(input$Lat),
+           lat <= max(input$Lat)) %>% 
+    mutate(lon = grade(lon, dx = as.numeric(input$Grade)),
+           lat = grade(lat, dx = as.numeric(input$Grade))) %>% 
+    group_by(lon, lat) %>% 
+    count %>% 
+    ungroup() 
+  m <- 
+    map_data("worldHires",
+             xlim = range(vms2$lon),
+             ylim = range(vms2$lat))
+
+  vms2 %>% 
+    mutate(n2 = ifelse(n > quantile(n, max(input$Maxz)), quantile(n, max(input$Maxz)), n)) %>% 
+    ggplot() +
+    theme_bw() +
+    geom_raster(aes(lon, lat, fill = n2)) +
+    geom_polygon(data = m, aes(long, lat, group = group), fill = "grey") +
+    scale_fill_viridis(option = "B", trans = "reverse") +
+    coord_quickmap(xlim = range(vms2$lon), ylim = range(vms2$lat)) +
+    labs(x = NULL, y = NULL)
+})
+```
+
+Column 
+-------------------------------------
+
+### Number of pings
+
+```{r}
+renderPlot({
+  vms %>% 
+    filter(between(speed, min(input$Range), max(input$Range)),
+           between(lon, min(input$Lon), max(input$Lon)),
+           between(lat, min(input$Lat), max(input$Lat))) %>% 
+    mutate(time = round_date(time, "month")) %>% 
+    group_by(time) %>% 
+    count() %>% 
+    ggplot(aes(time, n)) +
+    theme_grey(base_size = 18) +
+    geom_col() +
+    expand_limits(y = 0) 
+})
+```
+
+### Number of distinct vessels
+
+```{r}
+renderPlot({
+  vms %>% 
+    filter(between(speed, min(input$Range), max(input$Range)),
+           between(lon, min(input$Lon), max(input$Lon)),
+           between(lat, min(input$Lat), max(input$Lat))) %>% 
+    mutate(time = round_date(time, "month")) %>% 
+    select(time, publicdeviceid) %>% 
+    distinct() %>% 
+    group_by(time) %>% 
+    count() %>% 
+    ggplot(aes(time, n)) +
+    theme_grey(base_size = 18) +
+    geom_col() +
+    expand_limits(y = 0)
+})
+```
+
+Leaflet
+===================================== 
+
+### Number of pings
+
+```{r}
+renderLeaflet({
+  
+  vms2 <- 
+    vms %>% 
+    filter(speed >= min(input$Range),
+           speed <= max(input$Range),
+           lon >= min(input$Lon),
+           lon <= max(input$Lon),
+           lat >= min(input$Lat),
+           lat <= max(input$Lat)) %>% 
+    mutate(lon = grade(lon, dx = as.numeric(input$Grade)),
+           lat = grade(lat, dx = as.numeric(input$Grade))) %>% 
+    group_by(lon, lat) %>% 
+    count %>% 
+    ungroup() 
+  
+ vmsr <- 
+    vms2 %>% 
+    mutate(n = ifelse(n > quantile(n, max(input$Maxz)), quantile(n, max(input$Maxz)), n)) %>% 
+    #filter(speed >= min(input$Range) & speed <= max(input$Range)) %>% 
+    #mutate(lon = grade(lon, dx = as.numeric(input$Grade)),
+    #       lat = grade(lat, dx = as.numeric(input$Grade))) %>% 
+    #group_by(lon, lat) %>% 
+    #summarise(no.pings = n()) %>% 
+    #ungroup() %>% 
+    rasterFromXYZ() 
+  crs(vmsr) <- sp::CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+  #vmsr <- projectRasterForLeaflet(vmsr)
+  inf <- inferno(12, alpha = 1, begin = 0, end = 1, direction = -1)
+  #pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(vmsr), na.color = "transparent")
+  pal <- colorNumeric(inf, values(vmsr), na.color = "transparent")
+  leaflet() %>% 
+    addTiles(urlTemplate = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+             group = "Image") %>% 
+    #addTiles(urlTemplate = sjk200, group = "Chart", options = tileOptions(minZoom = 4, maxZoom = 11, tms = TRUE)) %>%
+    addTiles(group = "OSM") %>% 
+    addPolygons(data = eez.sp, group = "eez", fillOpacity = 0, color = "white") %>%
+    addRasterImage(vmsr, colors = pal, opacity = 0.8, group = "VMS", project = TRUE) %>% 
+    addLegend(pal = pal, values = values(vmsr),
+              title = "Number of pings") %>% 
+    addLayersControl(baseGroups = c("Image", "OSM"),
+                     overlayGroups = c("VMS", "eez"),
+                     options = layersControlOptions(collapsed = FALSE))
+})
+```
+
