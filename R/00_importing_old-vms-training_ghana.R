@@ -23,25 +23,22 @@ for(i in 1:length(gh.folders)) {
 
 gh <-
   bind_rows(res) %>%
-  select(mobile = Mobile,
+  select(vid = Mobile,
          time = Date,
-         lat = Latitude,
          lon = Longitude,
-         eez1 = EEZ1,
+         lat = Latitude,
          speed = Speed,
          port = Port,
+         eez1 = EEZ1,
          call = `Radio Call Sign`,
          mmsi = MMSI,
          ref = `Beacon ref`,
          area = FishingArea,
          file = file) %>%
   mutate(time = dmy_hms(time)) %>%
-  as_tibble()
-write_rds(gh, path = "data/old-vms-training_ghana.rds")
-
-# note that there are a lot of duplicates
-gh <-
-  gh %>%
+  as_tibble() %>%
   select(-file) %>%
-  distinct()
-summary(gh)
+  # get rid of duplicates
+  distinct() %>%
+  write_rds(path = "data/old-vms-training_ghana.rds")
+

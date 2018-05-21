@@ -4,6 +4,14 @@ output: flexdashboard::flex_dashboard
 runtime: shiny
 ---
 
+```{r}
+#file.name <- "data/sierra-leone_mail-from-stephen_2015-05-14.rds"
+#file.name <- "data/old-vms-training_ghana.rds"
+file.name <- "data/iceland_vms-trawl-data.rds"
+years <- 2017
+```
+
+
 ```{r global, include=FALSE}
 library(raster)
 library(sf)
@@ -26,16 +34,20 @@ grade <- function(x, dx) {
 ```{r}
 # Read in data
 vms <-
-  #read_rds("data/sierra-leone_mail-from-stephen_2015-05-14.rds") %>% 
-  read_rds("data/old-vms-training_ghana.rds") %>% 
+  read_rds(file.name) %>% 
   mutate(year = year(time),
          month = month(time)) %>% 
-  filter(year %in% 2015:2021,
+  filter(year %in% years,
          speed <= 15,
-         between(lon, -20, 10),
-         between(lat, 0, 40)) %>% 
-  dplyr::select(time, year, month, lon, lat, speed, publicdeviceid = call) %>% 
+         between(lon, -30, 10),
+         between(lat, 0, 69)) %>% 
+  dplyr::select(time, year, month, lon, lat, speed, vid) %>% 
   drop_na()
+
+lon.min <- floor(min(vms$lon))
+lon.max <- ceiling(max(vms$lon))
+lat.min <- floor(min(vms$lat))
+lat.max <- ceiling(max(vms$lat))
 ```
 
 ```{r}
@@ -68,19 +80,17 @@ sidebarPanel(sliderInput(inputId = "Range",
              width = 30)
 sidebarPanel(sliderInput(inputId = "Lon",
                          label = "Select lon range",
-                         min = -20,
-                         max = 10,
-                         #min = floor(min(vms$lon)), 
-                         #max = ceiling(max(vms$lon)), 
+                         min = lon.min,
+                         max = lon.max,
                          step = 0.5,
-                         value = c(-20, 40)),
+                         value = c(lon.min, lon.max)),
              width = 30)
 sidebarPanel(sliderInput(inputId = "Lat",
                          label = "Select lat range",
-                         min = 0,
-                         max = 40,
+                         min = lat.min,
+                         max = lat.max,
                          step = 0.5,
-                         value = c(0, 40)),
+                         value = c(lat.min, lat.max)),
              width = 30)
 sidebarPanel(sliderInput(inputId = "Maxz",
                          label = "Max z value",
@@ -183,7 +193,7 @@ renderPlot({
            between(lon, min(input$Lon), max(input$Lon)),
            between(lat, min(input$Lat), max(input$Lat))) %>% 
     mutate(time = round_date(time, "month")) %>% 
-    select(time, publicdeviceid) %>% 
+    select(time, vid) %>% 
     distinct() %>% 
     group_by(time) %>% 
     count() %>% 
