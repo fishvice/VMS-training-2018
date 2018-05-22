@@ -50,11 +50,18 @@ vms_grid_data <- function(d, dx, dy) {
 
 vms_plot_data <- function(d, limit.upper = 0.99) {
 
+  require(mapdata)
+  m <-
+    ggplot2::map_data("worldHires",
+                      xlim = range(d$lon),
+                      ylim = range(d$lat))
+
   d %>%
     dplyr::mutate(n = ifelse(n > quantile(n, limit.upper),
                              quantile(n, limit.upper),
                              n)) %>%
     ggplot2::ggplot() +
+    ggplot2::geom_polygon(data = m, aes(long, lat, group = group), fill = "grey") +
     ggplot2::geom_raster(ggplot2::aes(lon, lat, fill = n)) +
     ggplot2::coord_quickmap(xlim = range(d$lon), ylim = range(d$lat)) +
     viridis::scale_fill_viridis(option = "B", direction = -1) +

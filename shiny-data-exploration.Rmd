@@ -105,12 +105,18 @@ sidebarPanel(sliderInput(inputId = "Maxz",
                          step = 0.01,
                          value = c(0.9, 1)),
              width = 30)
-#numericInput(inputId = "Grade", label = "Grade", value = 0.1, min = 0.001, max = 0.5, step = 0.001,
-#  width = NULL)
+
 radioButtons(inputId = "Grade", label = "Choose decimal degrees",
              choices = c(0.0025, 0.005, 0.01, 0.05, 0.1, 0.5), selected = 0.5)
-#selectInput(inputId = "Grade", label = "Grade:",
-#            choices = seq(0.01, 0.1, by = 0.01), selected = 0.10)
+
+downloadButton('downloadData','Download Result Set')
+downloadHandler(filename = function() {
+     paste('resultset-', Sys.Date(), '.csv', sep='')
+   },
+     content = function(file) {
+     write.csv(vms.gridded(), file, row.names = FALSE)
+   }
+)
 ```
 
 
@@ -261,5 +267,40 @@ renderLeaflet({
                      overlayGroups = c("VMS", "eez"),
                      options = layersControlOptions(collapsed = FALSE))
 })
+```
+
+Gridded table
+===================================== 
+
+### xxx
+
+```{r}
+vms.gridded <- reactive({
+    vms %>% 
+    filter(speed >= min(input$Range),
+           speed <= max(input$Range),
+           lon >= min(input$Lon),
+           lon <= max(input$Lon),
+           lat >= min(input$Lat),
+           lat <= max(input$Lat)) %>% 
+    mutate(lon = grade(lon, dx = as.numeric(input$Grade)),
+           lat = grade(lat, dx = as.numeric(input$Grade))) %>% 
+    group_by(lon, lat) %>% 
+    count %>% 
+    ungroup()
+})
+
+renderTable({
+  vms.gridded()
+  },
+  include.rownames = FALSE)
+
+#downloadHandler(filename = function() {
+#     paste('resultset-', Sys.Date(), '.csv', sep='')
+#   },
+#     content = function(file) {
+#     write.csv(vms.gridded(), file, row.names = FALSE)
+#   }
+#)
 ```
 
