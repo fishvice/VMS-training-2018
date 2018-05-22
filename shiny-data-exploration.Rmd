@@ -1,17 +1,14 @@
 ---
-title: "VMS R Demo"
+title: "VMS"
 output: flexdashboard::flex_dashboard
 runtime: shiny
 ---
 
 ```{r}
-file.name <- "data/sierra-leone_mail-from-stephen_2015-05-14.rds"
+#file.name <- "data/sierra-leone_mail-from-stephen_2015-05-14.rds"
 #file.name <- "data/old-vms-training_ghana.rds"
 #file.name <- "data/old-vms-training_sierra-leone.rds"
-
-#file.name <- "data/iceland_vms-trawl-data.rds"
-#years <- 2017
-years <- 2009:2030
+file.name <- "data/iceland_vms-trawl-data.rds"
 ```
 
 
@@ -33,6 +30,8 @@ grade <- function(x, dx) {
   x <- (brks[ints] + brks[ints + 1]) / 2
   return(x)
 }
+
+years <- 2009:2030
 ```
 
 ```{r}
@@ -69,7 +68,7 @@ eez <-
   filter(sovereign1 %in% c("Guinea", "Sierra Leone", "Liberia", "Ivory Coast", "Ghana", "Togo"))
 eez.sp <- eez #as(eez, 'Spatial')
 #depth <- rgdal::readOGR("data-raw/shapes/depth-contours.shp")
-depth <- read_sf("data-raw/shapes/depth-contours.shp")
+#depth <- read_sf("data-raw/shapes/depth-contours.shp")
 ```
 
 
@@ -77,6 +76,12 @@ Sidebar {.sidebar data-width=175}
 =====================================
 
 ```{r}
+#fileInput("file1", "Choose CSV File",
+#                multiple = TRUE,
+#                accept = c("text/csv",
+#                         "text/comma-separated-values,text/plain",
+#                         ".csv"))
+
 sidebarPanel(sliderInput(inputId = "Range",
                          label = "Select speed range",
                          min = 0, 
@@ -111,7 +116,7 @@ radioButtons(inputId = "Grade", label = "Choose decimal degrees",
 
 downloadButton('downloadData','Download Result Set')
 downloadHandler(filename = function() {
-     paste('resultset-', Sys.Date(), '.csv', sep='')
+     paste('vms-gridded-', Sys.Date(), '.csv', sep='')
    },
      content = function(file) {
      write.csv(vms.gridded(), file, row.names = FALSE)
@@ -121,7 +126,7 @@ downloadHandler(filename = function() {
 
 
 
-Panel 1
+Dashboard
 =====================================  
 
 Column 
@@ -178,7 +183,7 @@ renderPlot({
 Column 
 -------------------------------------
 
-### Number of pings
+### Number of pings per month
 
 ```{r}
 renderPlot({
@@ -196,7 +201,7 @@ renderPlot({
 })
 ```
 
-### Number of distinct vessels
+### Number of distinct vessels per month
 
 ```{r}
 renderPlot({
@@ -269,10 +274,10 @@ renderLeaflet({
 })
 ```
 
-Gridded table
+Gridded data
 ===================================== 
 
-### xxx
+### First 100 rows
 
 ```{r}
 vms.gridded <- reactive({
@@ -291,7 +296,7 @@ vms.gridded <- reactive({
 })
 
 renderTable({
-  vms.gridded()
+  vms.gridded() %>% head(n = 100)
   },
   include.rownames = FALSE)
 
