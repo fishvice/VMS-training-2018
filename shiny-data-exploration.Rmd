@@ -5,10 +5,13 @@ runtime: shiny
 ---
 
 ```{r}
-#file.name <- "data/sierra-leone_mail-from-stephen_2015-05-14.rds"
+file.name <- "data/sierra-leone_mail-from-stephen_2015-05-14.rds"
 #file.name <- "data/old-vms-training_ghana.rds"
-file.name <- "data/iceland_vms-trawl-data.rds"
-years <- 2017
+#file.name <- "data/old-vms-training_sierra-leone.rds"
+
+#file.name <- "data/iceland_vms-trawl-data.rds"
+#years <- 2017
+years <- 2009:2030
 ```
 
 
@@ -22,6 +25,7 @@ library(viridis)
 library(tidyverse)
 library(maps)
 library(mapdata)
+
 
 grade <- function(x, dx) {
   brks <- seq(floor(min(x)), ceiling(max(x)),dx)
@@ -59,11 +63,13 @@ speed <-
 ```
 
 ```{r}
-eez <- read_sf("/net/hafkaldi/export/home/haf/einarhj/prj2/unuftp/VMS-training-2018/data-raw/shapes/eez.shp")
+eez <- read_sf("data-raw/shapes/eez.shp")
 eez <-
   eez %>%
   filter(sovereign1 %in% c("Guinea", "Sierra Leone", "Liberia", "Ivory Coast", "Ghana", "Togo"))
-eez.sp <- as(eez, 'Spatial')
+eez.sp <- eez #as(eez, 'Spatial')
+#depth <- rgdal::readOGR("data-raw/shapes/depth-contours.shp")
+depth <- read_sf("data-raw/shapes/depth-contours.shp")
 ```
 
 
@@ -244,9 +250,10 @@ renderLeaflet({
   leaflet() %>% 
     addTiles(urlTemplate = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
              group = "Image") %>% 
-    #addTiles(urlTemplate = sjk200, group = "Chart", options = tileOptions(minZoom = 4, maxZoom = 11, tms = TRUE)) %>%
     addTiles(group = "OSM") %>% 
-    addPolygons(data = eez.sp, group = "eez", fillOpacity = 0, color = "white") %>%
+    fitBounds(min(input$Lon), min(input$Lat), max(input$Lon), max(input$Lat)) %>% 
+    addPolygons(data = eez.sp, group = "eez", fillOpacity = 0, color = "white", weight = 2) %>%
+    #addPolylines(data = depth, group = "z", color = "white", weight = 1) %>% 
     addRasterImage(vmsr, colors = pal, opacity = 0.8, group = "VMS", project = TRUE) %>% 
     addLegend(pal = pal, values = values(vmsr),
               title = "Number of pings") %>% 

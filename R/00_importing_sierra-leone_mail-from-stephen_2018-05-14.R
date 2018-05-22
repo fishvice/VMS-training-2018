@@ -16,5 +16,9 @@ d <-
          speed,
          speed_cms,
          gpsquality,
-         type)
+         type) %>%
+  filter(between(lon, -18, 2.5),
+         between(lat, 1, 11))
 write_rds(d, path = "data/sierra-leone_mail-from-stephen_2015-05-14.rds")
+
+write_csv(d, path = "data-raw/sierra-leone_mail-from-stephen_2015-05-14.csv")

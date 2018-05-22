@@ -1,0 +1,73 @@
+---
+title: "Processing VMS data in R"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# Preamble
+
+This document describes how to process VMS data in R. The steps are as follows:
+
+1. Load needed libraries and helper functions
+2. Import the raw VMS-data
+3. Filter the raw data
+4. Grid the filtered data
+5. Create a plot
+6. Export the data so it can be imported into QGIS
+
+# 1. Load the need libraries and helper functions
+
+Needed libraries:
+```{r}
+library(tidyverse)
+```
+
+
+The helper-function we need are stored as an R-script called **functions.R** in the R-directory in the project folder. To make them "active" one needs to run the following command in R:
+```{r}
+source("R/functions.R")
+```
+
+# 2. Import the raw data
+
+Note: Here we expect that the data is in a csv-format:
+
+```{r}
+file.name <- "data-raw/sierra-leone_mail-from-stephen_2015-05-14.csv"
+vms.raw <- read_csv(file.name)
+```
+
+# 3. Filter the raw data
+
+Here we want to filter the data with respect to longitudinal and latitudinal range as well as speed:
+
+```{r}
+vms.tidy <-
+  vms_filter_data(vms.raw,
+                  lon.min = -14.5, lon.max = -8,
+                  lat.min = 6.5, lat.max = 9.5,
+                  speed.min = 2.5, speed.max = 4.5)
+```
+
+# 4. Grid the filtered data
+
+```{r}
+vms.grid <-
+  vms_grid_data(vms.tidy, dx = 0.005)
+```
+
+# 5. Create a plot in R
+
+```{r}
+vms_plot_data(vms.grid)
+```
+
+# 6. Export the data so it can be imported into QGIS
+
+```{r}
+write_csv(vms.grid, path = "data-raw/vms-gridded.csv")
+```
+

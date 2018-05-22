@@ -1,4 +1,5 @@
 library(tidyverse)
+library(rio)
 # ------------------------------------------------------------------------------
 # SIERRA LEONE
 
@@ -48,7 +49,9 @@ sl <-
          speed_cms,
          type,
          recievetime,
-         gpsquality)
+         gpsquality) %>%
+  filter(between(lon, -18, 2.5),
+         between(lat, 1, 11))
 
 write_rds(sl, path = "data/old-vms-training_sierra-leone.rds")
 
