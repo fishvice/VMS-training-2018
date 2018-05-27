@@ -1,6 +1,9 @@
 ---
 title: "Processing VMS data in R"
-output: html_document
+output: 
+  html_document: 
+    fig_height: 6
+    fig_width: 9
 ---
 
 ```{r setup, include=FALSE}
@@ -25,7 +28,6 @@ Needed libraries:
 library(tidyverse)
 ```
 
-
 The helper-function we need are stored as an R-script called **functions.R** in the R-directory in the project folder. To make them "active" one needs to run the following command in R:
 ```{r}
 source("R/functions.R")
@@ -33,12 +35,26 @@ source("R/functions.R")
 
 # 2. Import the raw data
 
-Note: Here we expect that the data is in a csv-format:
+Note: Here we expect that the raw data is in a csv-format:
 
 ```{r}
-file.name <- "data-raw/sierra-leone_mail-from-stephen_2015-05-14.csv"
+file.name <- "data-raw/sierra-leone_mail-from-alex_2018-05-23_tidy.csv"
 vms.raw <- read_csv(file.name)
+glimpse(vms.raw)
 ```
+
+As seen from above the data has the following variable:
+
+* **vid**: Unique vessel identification
+* **time**: The date and time of the vms recording
+* **lon**: Degrees longitude
+* **lat**: Degrees latitude
+* **speed**: Instantaneous vessel speed in knots
+* **speed_cm**: Instantaneous vessel speed in meters per second
+* **qpsquality**: Some information on the quality of the speed
+* **type**: Signal type
+
+In the processing of the data below it is assumed that the variable names are exactly as above, if different it is recomended to change the varible names before the data is imported into R. Use Notepad rather than Excel or LibreOffice to change the variable names.
 
 # 3. Filter the raw data
 
@@ -52,12 +68,17 @@ vms.tidy <-
                   speed.min = 2.5, speed.max = 4.5)
 ```
 
+In the above example we are narrowing the vms data to cover the area between -14.5 and -8 degrees longitude, 6.5 and 9.5 degrees latitude and speed within the range of 2.5 to 4.5 knots.
+
 # 4. Grid the filtered data
 
 ```{r}
 vms.grid <-
   vms_grid_data(vms.tidy, dx = 0.005)
+glimpse(vms.grid)
 ```
+
+In the above step we have gridded the coordinate data to a resolution of 0.005 degrees and counted the number of vms-pings (n) within each of the grids.
 
 # 5. Create a plot in R
 
@@ -65,9 +86,18 @@ vms.grid <-
 vms_plot_data(vms.grid)
 ```
 
-# 6. Export the data so it can be imported into QGIS
+# 6. Export the data
 
-```{r}
+#### As plain text file
+
+```{r, eval = FALSE}
 write_csv(vms.grid, path = "data-raw/vms-gridded.csv")
+```
+
+#### As a geotiff file to be imported into QGIS
+
+Need specifications from Julian:
+```{r}
+
 ```
 
