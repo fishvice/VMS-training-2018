@@ -1,0 +1,496 @@
+---
+title: "Processing VMS data"
+output: 
+  html_document: 
+    fig_height: 6
+    fig_width: 9
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+# Nature of raw VMS data
+___
+
+## Common variables
+
+All **raw** VMS/AIS data have at least four variables (data columns) in common:
+
+* **Vessel id**: A unique vessel identification. Can be:
+    * Character reflecting mobile id
+    * Characters or combination of numbers and characters reflecting call sign.
+* **Time**: The time associated with fishing position. Time is sometimes stored as two variables
+* **Longitude**: The longitudinal coordinate of the vessel location.
+    * Normally the units are in degrees decimals ranging from -180 to 180
+* **Latitude**: The latitudinal coordinate of the vessel location.
+    * Normally the units are in degrees decimals ranging from -90 to 90
+* **Speed**: The instantaneous speed of the vessel
+    * The units may vary, sometimes in centimeters per seconds sometime in knots, sometimes in ...
+
+A typical example of such data is:
+```{r}
+vms.raw <- read_rds("data/iceland_vms-trawl-data.rds")
+vms.raw %>% head() %>% select(vid, time, lon, lat, speed) %>% knitr::kable()
+```
+
+Here each column is a **variable** and each row is an individual record of vessel location and speed.
+
+## Additional variables
+
+These may be quite variable, depending what system they come from. Could include:
+
+* **Receiving Time**: Time the signal was received at by central database
+* **GPS quality**: Some categorization of signal quality
+* **Heading**: Instantaneous heading at the time of the ping recording
+    * Normally the unit is in degrees, ranging from 0 to 360.
+* **Port**: Automatic registration of port id or name.
+* **eez**: The economic exclusive zone the vessel is currently in.
+
+## Example of "raw" data
+
+### Ghana
+
+```{r}
+vms.raw <- 
+  read_delim("data-raw/ghana/march 18.csv", delim = ";") %>% 
+  select(-X10)
+vms.raw %>%
+  head() %>% 
+  knitr::kable()
+```
+
+
+### Liberia
+
+
+```{r}
+tmp <- read_csv("data-raw/Liberia_vms_2018-05-28.csv")
+tmp %>% 
+  head() %>% 
+  knitr::kable()
+```
+
+
+### Sierra Leone
+
+```{r}
+library(lubridate)
+vms.raw <- 
+  read_csv2("data-raw/sierra-leone_mail-from-alex_2018-05-23.csv") %>% 
+  mutate(ReceiveTime = lubridate::ymd_hms(ReceiveTime),
+         gpsTime = lubridate::ymd_hms(gpsTime))
+vms.raw %>% 
+  head() %>% 
+  knitr::kable()
+```
+
+# Processing VMS data
+___
+
+## Preamble
+
+VMS data by nature contain relatively large amount of records (rows). If we were to plot all the data from one month one could would obtain something like:
+
+```{r, fig.height = 3}
+vms.raw <- 
+  read_delim("data-raw/ghana/march 18.csv", delim = ";") %>% 
+  select(-X10)
+vms.raw <- 
+  vms.raw %>% 
+  rename(vid = Mobile,
+         lon = Longitude,
+         lat = Latitude,
+         date = Date,
+         speed = Speed) %>% 
+  filter(lon < 20)
+
+vms.raw %>% 
+  ggplot(aes(lon, lat)) +
+  theme_bw(base_size = 16) +
+  geom_point(size = 0.1) +
+  coord_quickmap()
+```
+
+These data are not very informative on their own because:
+
+* No background map for easy reference of location
+* Over plotting of data
+
+Various backgrounds can be added, here we just provide the terrestrial area:
+
+```{r, fig.height = 3}
+library(maps)
+library(mapdata)
+m <- map_data("worldHires", 
+              xlim = range(vms.raw$lon),
+              ylim = range(vms.raw$lat))
+ggplot() +
+  theme_bw(base_size = 16) +
+  geom_polygon(data = m, aes(long, lat, group = group), fill = "grey") +
+  geom_point(data = vms.raw, aes(lon, lat), size = 0.1) +
+  coord_quickmap(xlim = range(vms.raw$lon), ylim = range(vms.raw$lat)) +
+  scale_x_continuous(NULL) +
+  scale_y_continuous(NULL)
+```
+
+We still have however the problem of over plotting, so the information content of the data is rather limited.
+
+## Activity of one vessel
+
+For simple analysis of the data one may want to just focus on activity of one vessel over a time period of one month:
+
+```{r, fig.height = 3}
+d <- 
+  vms.raw %>% 
+  filter(vid == "ADUM") 
+d %>% 
+  ggplot() +
+  theme_bw(base_size = 16) +
+  geom_polygon(data = m, aes(long, lat, group = group), fill = "grey") +
+  geom_point(data = d, aes(lon, lat), size = 0.1) +
+  coord_quickmap(xlim = range(d$lon), ylim = range(d$lat)) +
+  scale_x_continuous(NULL) +
+  scale_y_continuous(NULL)
+```
+
+A scatter plot of one vessel ignores that the data is in form of a time series. If we add a line plot joining the "consecutive" points one can get a visual representation as follows:
+
+```{r, fig.height = 3}
+d %>% 
+  arrange(date) %>% 
+  ggplot() +
+  theme_bw(base_size = 16) +
+  geom_polygon(data = m, aes(long, lat, group = group), fill = "grey") +
+  geom_path(data = d, aes(lon, lat), colour = "red") +
+  geom_point(data = d, aes(lon, lat), size = 0.1) +
+  coord_quickmap(xlim = range(d$lon), ylim = range(d$lat)) +
+  scale_x_continuous(NULL) +
+  scale_y_continuous(NULL)
+```
+
+When a vessel is fishing one can infer from the distance between points (assuming that the ping frequency reported is constant):
+
+* **Fishing**: Consecutive points are close together
+* **Cruising**: Consecutive points are far apart
+
+A better visual representation is to show the speed as colours:
+
+```{r, fig.height = 3}
+library(viridis)
+d <- 
+  d %>% 
+  arrange(date) %>% 
+  filter(speed < 15)
+d %>% 
+  ggplot() +
+  theme_bw(base_size = 16) +
+  geom_polygon(data = m, aes(long, lat, group = group), fill = "grey") +
+  geom_path(data = d, aes(lon, lat), colour = "grey") +
+  geom_point(data = d, aes(lon, lat, colour = speed), size = 0.5) +
+  scale_colour_viridis(option = "B", direction = -1) +
+  coord_quickmap(xlim = range(d$lon), ylim = range(d$lat)) +
+  scale_x_continuous(NULL) +
+  scale_y_continuous(NULL)
+```
+
+In this figure we also notice the third category of fishing activity:
+
+* **In harbour**: Zero speed
+
+An addition information that this graph may show is **potential** transshipment activity.
+
+### Distribution of speed
+
+From the vessel above the distribution of speed looks something like:
+
+```{r, fig.height = 3}
+vms.raw %>% 
+  filter(speed <= 12) %>% 
+  mutate(speed = round(speed)) %>% 
+  group_by(speed) %>% 
+  count() %>% 
+  ggplot() +
+  theme_bw(base_size = 16) +
+  geom_col(aes(speed, n)) +
+  labs(x = "Speed [kt]", y = "Number of pings")
+```
+
+An example of spread distribution of a whole fleet from some country is something like:
+
+```{r, fig.height = 3}
+grade <- function(x, dx) {
+  brks <- seq(floor(min(x)), ceiling(max(x)),dx)
+  ints <- findInterval(x, brks, all.inside = TRUE)
+  x <- (brks[ints] + brks[ints + 1]) / 2
+  return(x)
+}
+"data/old-vms-training_sierra-leone.rds" %>% 
+  read_rds() %>% 
+  filter(!is.na(speed),
+         speed < 15) %>% 
+  mutate(speed = grade(speed, dx = 0.5)) %>% 
+  group_by(speed) %>% 
+  count() %>% 
+  ggplot(aes(speed, n)) +
+  theme_bw(base_size = 16) +
+  geom_col()
+```
+
+## On gridding data
+___
+
+```{r, echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+### Preamble
+
+Lets say we have some spatial observations and wanted to calculate some summary metric (count, sum, mean, variance, ...) based on specified spacial gridding of the raw data. As an example, one could have 100 observations on a limited spatial scale of some 3 degrees longitude and 1 latitude and wanted to calculate the number of observations that fall within a 0.5 degree longitude and 0.25 degree latitude.
+
+The data would look something like this:
+
+```{r, echo = FALSE}
+library(tidyverse)
+library(sf)
+grade <- function(x, dx) {
+  brks <- seq(floor(min(x)), ceiling(max(x)),dx)
+  ints <- findInterval(x, brks, all.inside = TRUE)
+  x <- (brks[ints] + brks[ints + 1]) / 2
+  return(x)
+}
+encode_zchords <- function(x, y, dx = 1, dy = 0.5 * dx, invalids = TRUE) {
+
+ x <- grade(x, dx)
+ y <- grade(y, dy)
+
+ if(invalids) {
+   x <- ifelse(x >= -180 & x <= 180, x, NA)
+   y <- ifelse(y >= -90  & y <= 90 , y, NA)
+ }
+
+ return(paste(round(x,6), round(y,6), sep = ":"))
+
+}
+set.seed(314)
+df <- 
+  data_frame(lon =    runif(n = 1e2, min = -28, max = -25),
+             lat =    runif(n = 1e2, min =  64, max =  65),
+             effort = rnorm(n = 1e2, mean = 1000, sd = 200)) %>% 
+  mutate(sq = encode_zchords(lon, lat, dx = 0.5, dy = 0.25),
+         type = "zchords") %>% 
+  separate(sq, c("lon2", "lat2"), sep = ":", convert = TRUE, remove = FALSE)
+d <- 
+  df %>% 
+  mutate(sq = encode_zchords(lon, lat, dx = 0.5, dy = 0.25),
+         type = "zchords") %>% 
+  group_by(sq) %>% 
+  summarise(n = n()) %>%
+  separate(sq, c("lon2", "lat2"), sep = ":", convert = TRUE, remove = FALSE) %>% 
+  mutate(name = letters[1:n()])
+
+p <- 
+  d %>% 
+  ggplot() +
+  theme_bw() +
+  geom_text(aes(lon2, lat2, label = n), size = 10, colour = "blue") +
+  geom_point(data = df, aes(lon, lat)) +
+  coord_quickmap() +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = seq(-28, -25, by = 0.5)) +
+  theme(panel.grid.minor = element_line(colour = NA)) +
+  labs(x = NULL, y = NULL)
+df %>% select(lon, lat) %>% knitr::kable()
+```
+
+When we plot the data it looks something like this (blue labels are the counts statistics of the observation within each grid):
+
+```{r}
+p
+```
+
+In order to solve this problem one needs first to transform each spatial point to a central point based on user's defined xy-resolution. I.e. we want to transform the observed spatial x and y value (the black points) to a single spatial point (the pink points) as depicted visually in this graph:
+
+
+```{r, echo = FALSE}
+p +
+  geom_point(data = df, aes(lon2, lat2), colour = "red", size = 5, alpha = 0.1) +
+  geom_segment(data = df, aes(lon, lat, xend = lon2, yend = lat2))
+```
+
+Now, solving this problem has been done myriads of times. What is documented here an example of a work flow.
+
+```{r}
+set.seed(314) # for the love of pi
+d <- 
+  data_frame(lon =    runif(n = 1e2, min = -28, max = -25),
+             lat =    runif(n = 1e2, min =  64, max =  65),
+             effort = rnorm(n = 1e2, mean = 1000, sd = 200))
+```
+
+Lets break the problem up by solving just one dimension (e.g. the longitude). The challenge is to assign each point to a bin and count the number of incidences that a point falls within the interval. Sort of like what happens when we generate a histogram:
+
+```{r, fig.height = 3}
+d %>% 
+  ggplot() +
+  theme_bw(base_size = 16) +
+  geom_histogram(aes(lon), breaks = seq(-28, -25, by = 0.5), 
+                 fill = "grey", colour = "black") +
+  geom_jitter(aes(lon, y = 5), width = 0, height = 3, colour = "red") +
+  scale_x_continuous(breaks = seq(-28, -25, by = 0.5))
+```
+
+The steps are:
+
+1. Create some pretty breaks, given the data and the specified resolution.
+2. Find break interval that each data point belongs to.
+3. Calculate the midpoint on the interval (here the longitude) that the each data-point belongs to.
+
+So the data behind the histogram above looks something like this:
+```{r}
+x <- d$lon
+dx <- 0.5
+```
+
+```{r}
+brks <- seq(floor(min(x)), ceiling(max(x)), dx)
+#brks
+```
+
+```{r}
+# https://github.com/hadley/adv-r/blob/master/extras/cpp/find-interval.cpp
+# By using the argument all.inside = TRUE we assign the point to the lower break/interval position.
+ints <- findInterval(x, brks, all.inside = TRUE)
+#ints
+```
+
+
+```{r}
+#table(ints)
+```
+
+```{r}
+x <- (brks[ints] + brks[ints + 1]) / 2
+#x
+```
+
+```{r}
+grade <- function(x, dx) {
+  brks <- seq(floor(min(x)), ceiling(max(x)),dx)
+  ints <- findInterval(x, brks, all.inside = TRUE)
+  x <- (brks[ints] + brks[ints + 1]) / 2
+  return(x)
+}
+```
+
+
+```{r}
+d %>% 
+  mutate(glon = grade(lon, dx = dx)) %>% 
+  group_by(glon) %>% 
+  summarise(n = n()) %>% 
+  knitr::kable()
+```
+
+When we do this both for the longitudinal data and latitudinal data we obtain a table that looks somethink like:
+
+```{r}
+d <- 
+  d %>% 
+  mutate(glon = grade(lon, dx = 0.50),
+         glat = grade(lat, dx = 0.25))
+d %>% slice(1:10) %>%  select(-effort) %>% knitr::kable()
+```
+
+One obtains a dataframe with the same amount of observations as the original, we have just added two more variables. One could now proceed with creating some summary statistics based on the gridded xy-values:
+```{r}
+df <-
+  d %>% 
+  group_by(glon, glat) %>% 
+  summarise(n = n(),
+            m = mean(effort),
+            s = sum(effort),
+            sd = sd(effort))
+# etc.
+df %>% ungroup() %>% select(glon, glat, n) %>% knitr::kable()
+```
+
+So we have condensed the original 100 observations to a dataset that contains 23 observations (6 bins in the x-dimension times 4 in the y-dimension, minus one "missing" grid dimension). And now one is ready to plot any statistics of interest, here we just choose to display the counts by colour codes using the ggplot raster function adding the original data as well:
+```{r}
+df %>% 
+  ungroup() %>% 
+  ggplot(aes(glon, glat)) +
+  theme_bw(base_size = 16) +
+  geom_raster(aes(fill = n)) +
+  geom_point(data = d, aes(lon, lat), colour = "white", size = 0.5) +
+  geom_segment(data = d, aes(xend = lon, yend = lat), colour = "white") +
+  geom_text(aes(label = n), colour = "blue") +
+  scale_fill_viridis_c(option = "B", direction = -1) +
+  scale_x_continuous(breaks = seq(-28, -25, by = 0.5)) +
+  coord_quickmap() +
+  labs(x = NULL, y = NULL, fill = "No. pings")
+```
+
+
+### A case examples
+
+```{r, echo = FALSE}
+vms <- read_rds("data/iceland_vms-trawl-data.rds")
+```
+
+Here we take an example of `r nrow(vms)` records of geoposition from activities of bottom trawlers operating in waters northwest of Iceland. The position is automatically recorded every 5 minutes or so and the raw data look something like this:
+```{r}
+vms %>% slice(1:10) %>% knitr::kable()
+```
+
+
+Now lets calculate the number of observations (here effort) at a xy-resolution of 0.01 x 0.005 degrees:
+
+```{r}
+dx <- 0.01
+vms <-
+  vms %>% 
+  mutate(lon = grade(lon, dx),
+         lat = grade(lat, dx/2)) %>% 
+  group_by(lon, lat) %>% 
+  summarise(n = n())
+```
+
+We now have created a summary statistic containing `r nrow(vms)` records that looks something like this:
+
+```{r}
+# code just to display first 10 records:
+vms %>% ungroup() %>% slice(1:10) %>% knitr::kable()
+```
+
+Here the lon and the lat refer to the center positioning within the specified xy-grid and n refers to the sum of the numbers of trawling operation recorded within that grid (effort).
+
+Now we can plot these data, just adding an anonymous "island" and 100, 200 and 400 meter depth contour as a reference:
+```{r}
+vms %>% 
+  mutate(n = ifelse(n > 100, 100, n)) %>% 
+  ggplot() +
+  theme_bw() +
+  geom_raster(aes(lon, lat, fill = n)) +
+  geom_polygon(data = geo::island,
+               aes(lon, lat, group = NULL), fill = "grey") +
+  geom_path(data = geo::gbdypi.400,
+            aes(lon, lat, group = NULL), colour = "grey") +
+  geom_path(data = geo::gbdypi.200,
+            aes(lon, lat, group = NULL), colour = "grey") +
+  geom_path(data = geo::gbdypi.100,
+            aes(lon, lat, group = NULL), colour = "grey") +
+  scale_fill_viridis_c(option = "B", direction = -1) +
+  scale_x_continuous(breaks = seq(-27, -21, by = 1)) +
+  scale_y_continuous(breaks = seq(65.5, 67.5, by = 0.5)) +
+  coord_quickmap(xlim = range(vms$lon), ylim = range(vms$lat)) +
+  labs(x = NULL, y = NULL, fill = "No pings") +
+  theme(legend.position = c(0.92, 0.2))
+```
+
+
+
