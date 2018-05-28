@@ -78,7 +78,7 @@ vms_import_data <- function(file.name, country, speed.min, speed.max, date.min, 
              lon = Lon,
              lat = Lat,
              speed = Speed) %>%
-      mutate(date = str_sub(gpsTime, 1, 19),
+      mutate(date = str_sub(date, 1, 19),
              date = ymd_hms(date),
              speed = as.numeric(speed) * 3600/185200,
              activity = case_when(speed < speed.min ~ paste0("<", speed.min),
