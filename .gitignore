@@ -6,3 +6,6 @@ extras
 data-raw
 *.html
 *.pdf
+libs
+others
+.Rhistory

@@ -43,6 +43,8 @@ library(knitr)
 library(tidyverse)
 library(lubridate)
 library(rio)
+library(sp)
+library(raster)
 
 # Some helper functions
 grade <- function(x, dx) {
@@ -68,6 +70,24 @@ vms_import_data <- function(file.name, country, speed.min, speed.max, date.min, 
       filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>% 
       return()
   }
+
+  if(country == "Sierra Leone") {
+    import(file.name) %>%
+      rename(vid = PublicDeviceID,
+             date = gpsTime,
+             lon = Lon,
+             lat = Lat,
+             speed = Speed) %>%
+      mutate(date = str_sub(gpsTime, 1, 19),
+             date = ymd_hms(date),
+             speed = as.numeric(speed) * 3600/185200,
+             activity = case_when(speed < speed.min ~ paste0("<", speed.min),
+                                  speed < speed.max ~ paste0(speed.min, "-", speed.max),
+                                  TRUE ~ paste0(">", speed.max))) %>%
+      filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
+      return()
+  }
+
 }
 
 vms_plot_speed <- function(d, bindwidth = 0.5, speed.min = 0, speed.max = 15) {
@@ -115,6 +135,33 @@ vms_grid_data <- function(d, dx, dy) {
     dplyr::ungroup()
 
 }
+
+# Alternative using the raster package... need this for saving as GeoTIFF
+vms_grid_data2 <- function(d, dx, dy) {
+
+  if(missing(dx)) stop("You need to provide the longitudinal resolution")
+
+  if(missing(dy)) dy <- dx
+
+  d %>%
+    dplyr::select(lon, lat) %>%
+    tidyr::drop_na()
+
+  # Convert to SpatialPoints
+  coordinates(d) <- c("lon", "lat")
+  proj4string(d) <- "+proj=longlat"
+
+  # Rasterization
+  rst <- raster(xmn = min(d$lon),
+             xmx = max(d$lon),
+             ymn = min(d$lat),
+             ymx = max(d$lat),
+             res = grid.resolution,
+             crs = "+proj=longlat")
+  rst <- rasterize(d, rst, field = 1, fun = "count")
+  return(rst)
+}
+
 
 vms_plot_grid <- function(d, limit.upper = 0.99) {
 
