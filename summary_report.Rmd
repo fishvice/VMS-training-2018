@@ -67,28 +67,31 @@ vms_import_data <- function(file.name, country, speed.min, speed.max, date.min, 
              activity = case_when(speed < speed.min ~ paste0("<", speed.min),
                                   speed < speed.max ~ paste0(speed.min, "-", speed.max),
                                   TRUE ~ paste0(">", speed.max))) %>% 
-      filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>% 
+      dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
       return()
   }
 
   if(country == "Sierra Leone") {
-    import(file.name) %>%
+    import(file.name, setclass="tibble") %>%
       rename(vid = PublicDeviceID,
              date = gpsTime,
              lon = Lon,
              lat = Lat,
              speed = Speed) %>%
-      mutate(date = str_sub(date, 1, 19),
+      mutate(lat = as.numeric(str_replace(lat,  ",",  ".")),
+             lon = as.numeric(str_replace(lon,  ",",  ".")),
+             date = str_sub(date, 1, 19),
              date = ymd_hms(date),
              speed = as.numeric(speed) * 3600/185200,
              activity = case_when(speed < speed.min ~ paste0("<", speed.min),
                                   speed < speed.max ~ paste0(speed.min, "-", speed.max),
                                   TRUE ~ paste0(">", speed.max))) %>%
-      filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
+      dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
       return()
   }
 
 }
+
 
 vms_plot_speed <- function(d, bindwidth = 0.5, speed.min = 0, speed.max = 15) {
   d %>%
