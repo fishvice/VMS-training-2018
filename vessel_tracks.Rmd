@@ -5,16 +5,19 @@ output:
   word_document: default
 ---
 
-Input parameters
+## Input parameters
 
 ```{r}
 country <- "Ghana"  # choices "Ghana", "Liberia", "Sierra Leone"
 
 # Here you need to specifiy the full path name of your data:
-input.file.name <- "/home/julian/Desktop/Ghana_sample.csv"
+file.name <- "/home/julian/Documents/Africa_VMS/data-raw/Ghana_sample.csv"
 
 # Output path for the shapefile
 shapefile.path.name <- "/home/julian/Desktop/"
+
+speed.min <- 2
+speed.max <- 4.5
 
 # Range of the maps
 lon.min <- -4
@@ -26,6 +29,8 @@ lat.max <- 6
 # date should be valid YYYY-MM-DD HH:MM.SS
 date.min <- "2015-01-01 00:00:00"
 date.max <- "2015-01-31 23:59:00"
+
+grid.resolution <- 0.05   # Decimal degree units
 
 ```
 
@@ -42,6 +47,8 @@ library(rio)
 library(sp)
 library(raster)
 library(rgdal)
+library(viridis)
+library(mapdata)
 
 # Some helper functions
 
@@ -61,7 +68,6 @@ vms_import_data <- function(file.name, country, speed.min, speed.max, date.min, 
              activity = case_when(speed < speed.min ~ paste0("<", speed.min),
                                   speed < speed.max ~ paste0(speed.min, "-", speed.max),
                                   TRUE ~ paste0(">", speed.max))) %>% 
-      dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
       arrange(vid, date)
   }
 
@@ -80,7 +86,6 @@ vms_import_data <- function(file.name, country, speed.min, speed.max, date.min, 
              activity = case_when(speed < speed.min ~ paste0("<", speed.min),
                                   speed < speed.max ~ paste0(speed.min, "-", speed.max),
                                   TRUE ~ paste0(">", speed.max))) %>%
-      dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
       arrange(vid, date)
   }
 
@@ -96,21 +101,55 @@ vms_import_data <- function(file.name, country, speed.min, speed.max, date.min, 
              activity = case_when(speed < speed.min ~ paste0("<", speed.min),
                                   speed < speed.max ~ paste0(speed.min, "-", speed.max),
                                   TRUE ~ paste0(">", speed.max))) %>%
-      dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
       arrange(vid, date)
   }
 
   return(imp)
 }
 
+vms_summary <- function(d){
 
-vms_create_shapefile <- function(d){
+  fs <- unique(d$activity)
+
+  np <- d %>%
+    group_by(vid) %>%
+    summarise(np = length(activity),
+              nfish = sum(activity == fs[1])) %>%
+    rename(vessel = vid)
+}
+
+
+vms_compute_effort <- function(d, res, speed.min, speed.max) {
+
+  if(missing(res)) stop("You need to provide the resolution")
+
+  d <- d %>%
+    tidyr::drop_na() %>%
+    dplyr::filter(speed >= speed.min,
+           speed <= speed.max) %>%
+    dplyr::select(lon, lat)
+
+  # Convert to SpatialPoints
+  coordinates(d) <- c("lon", "lat")
+  proj4string(d) <- "+proj=longlat"
+
+  # Rasterization
+  rst <- raster(xmn = min(d$lon),
+             xmx = max(d$lon),
+             ymn = min(d$lat),
+             ymx = max(d$lat),
+             res = grid.resolution,
+             crs = "+proj=longlat")
+  rst <- rasterize(d, rst, field = 1, fun = "count")
+  return(rst)
+}
+
+vms_create_track_shapefile <- function(d){
 
   tracks <- list()
   ids <- unique(d$vid)
 
   for(i in 1:length(ids)){
-
       xy <- d %>%
         dplyr::filter(vid == ids[i]) %>%
         dplyr::select(lon, lat)
@@ -124,7 +163,18 @@ vms_create_shapefile <- function(d){
   writeOGR(tracks, shapefile.path.name, "tracks",
            driver = "ESRI Shapefile",
            overwrite_layer = TRUE)
+}
 
+vms_plot_speed <- function(d, bindwidth = 0.5, speed.min = 0, speed.max = 15) {
+
+  d %>%
+    dplyr::select(speed) %>%
+    dplyr::mutate(activity = ifelse(dplyr::between(speed, speed.min, speed.max),
+                                    "Fishing", "Not fishing")) %>%
+    tidyr::drop_na() %>%
+    ggplot() +
+    geom_histogram (aes(x=speed, fill = activity), binwidth = 0.5) +
+    xlim(0, 15)
 }
 
 
@@ -135,9 +185,6 @@ vms_plot_tracks <- function(d){
   m <- map_data("worldHires",
               xlim = range(d$lon),
               ylim = range(d$lat))
-
-
-  library(viridis)
 
   ids <- unique(d$vid)
 
@@ -163,21 +210,69 @@ vms_plot_tracks <- function(d){
   }
 }
 
+vms_plot_effort <- function(rs){
+
+  rs <- as(rs, "SpatialPixelsDataFrame")
+  rs <- as.data.frame(rs)
+  colnames(rs) <- c("np", "x", "y")
+
+  m <-
+    ggplot2::map_data("worldHires",
+                      xlim = c(lon.min, lon.max),
+                      ylim = c(lat.min, lat.max))
+
+ ggplot2::ggplot() +
+    geom_tile(data=rs, aes(x=x, y=y, fill = np), alpha=0.8) +
+    ggplot2::geom_polygon(data = m, aes(long, lat, group = group), fill = "grey") +
+      coord_quickmap(xlim = c(lon.min, lon.max),  ylim = c(lat.min, lat.max)) +
+      viridis::scale_fill_viridis(option = "B", direction = -1) +
+      ggplot2::scale_x_continuous(name = NULL) +
+      ggplot2::scale_y_continuous(name = NULL) +
+      ggtitle("Fishing effort")
+
+}
+
+
 vms <-
-  vms_import_data(input.file.name,
+  vms_import_data(file.name = file.name,
                   country = country,
                   speed.min = speed.min,
                   speed.max = speed.max,
                   date.min = date.min,
                   date.max = date.max)
 
-if(nrow(vms) == 0) print("No data resulting from the selected input parameters")
 
-if(nrow(vms) > 0) {
+sm <- vms_summary(vms)
 
-  vms_create_shapefile(vms)
-  vms_plot_tracks(vms)
 
+```
+### Summary of the full dataset
+
+```{r}
+kable(sm)
+
+```
+
+### Summary of the selected data
+
+```{r}
+
+vms_filtered <- vms %>%
+  dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max)))
+
+if(nrow(vms_filtered) == 0) print("No data resulting from the selected input parameters")
+
+if(nrow(vms_filtered) > 0) {
+
+  vms_plot_speed(vms_filtered)
+
+  rst <- vms_compute_effort(vms_filtered, grid.resolution, speed.min, speed.max)
+
+  vms_plot_effort(rst)
+
+  vms_plot_tracks(vms_filtered)
+
+  vms_create_track_shapefile(vms_filtered)
 }
 
 ```
