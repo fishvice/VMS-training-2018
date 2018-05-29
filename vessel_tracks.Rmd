@@ -1,36 +1,33 @@
 ---
-title: "Summary report"
+title: "Vessel tracks"
 output:
   html_document: default
   word_document: default
 ---
 
+Input parameters
 
 ```{r}
 country <- "Ghana"  # choices "Ghana", "Liberia", "Sierra Leone"
 
-# Here you need to specifiy the full path name:
-input.file.name <- "/home/julian/Documents/Africa_VMS/data-raw/VMS_data_files_Sierra_Leone/Master VMS Data/sierraLeone_dump.000.csv"
-
+# Here you need to specifiy the full path name of your data:
 input.file.name <- "/home/julian/Desktop/Ghana_sample.csv"
 
+# Output path for the shapefile
 shapefile.path.name <- "/home/julian/Desktop/"
 
-lon.min <- -15
-lon.max <- 2.5
+# Range of the maps
+lon.min <- -4
+lon.max <- 0
 
 lat.min <- 3.0
-lat.max <- 10
-
-speed.min <- 2.5
-speed.max <- 4.5
+lat.max <- 6
 
 # date should be valid YYYY-MM-DD HH:MM.SS
 date.min <- "2015-01-01 00:00:00"
 date.max <- "2015-01-31 23:59:00"
 
 ```
-
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
@@ -66,7 +63,6 @@ vms_import_data <- function(file.name, country, speed.min, speed.max, date.min, 
                                   TRUE ~ paste0(">", speed.max))) %>% 
       dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
       arrange(vid, date)
-      return(imp)
   }
 
   if(country == "Sierra Leone") {
@@ -86,18 +82,26 @@ vms_import_data <- function(file.name, country, speed.min, speed.max, date.min, 
                                   TRUE ~ paste0(">", speed.max))) %>%
       dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
       arrange(vid, date)
-      return(imp)
   }
 
-}
+  if(country == "Liberia") {
+    imp <- import(file.name, setclass="tibble") %>%
+      rename(date = DateTime, # or gpsTime???
+             lon = Longitude,
+             lat = Latitude,
+             speed = "Speed (MPH)") %>%
+      mutate(date = ymd_hms(date),
+             lat = as.numeric(lat),
+             lon = as.numeric(lon),
+             activity = case_when(speed < speed.min ~ paste0("<", speed.min),
+                                  speed < speed.max ~ paste0(speed.min, "-", speed.max),
+                                  TRUE ~ paste0(">", speed.max))) %>%
+      dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
+      arrange(vid, date)
+  }
 
-vms <-
-  vms_import_data(input.file.name,
-                  country = country,
-                  speed.min = speed.min,
-                  speed.max = speed.max,
-                  date.min = date.min,
-                  date.max = date.max)
+  return(imp)
+}
 
 
 vms_create_shapefile <- function(d){
@@ -107,9 +111,9 @@ vms_create_shapefile <- function(d){
 
   for(i in 1:length(ids)){
 
-    xy <- d %>%
-      dplyr::filter(vid == ids[i]) %>%
-      dplyr::select(lon, lat)
+      xy <- d %>%
+        dplyr::filter(vid == ids[i]) %>%
+        dplyr::select(lon, lat)
     tracks[[i]] <- Lines(list(Line(xy)), ID = i)
 
   }
@@ -123,8 +127,6 @@ vms_create_shapefile <- function(d){
 
 }
 
-
-vms_create_shapefile(vms)
 
 vms_plot_tracks <- function(d){
 
@@ -152,15 +154,30 @@ vms_plot_tracks <- function(d){
       geom_path(data = d2, aes(lon, lat), colour = "grey") +
       geom_point(data = d2, aes(lon, lat, colour = speed), size = 0.5) +
       scale_colour_viridis(option = "B", direction = -1) +
-      coord_quickmap(xlim = range(d2$lon), ylim = range(d2$lat)) +
+      coord_quickmap(xlim = c(lon.min, lon.max),  ylim = c(lat.min, lat.max)) +
       scale_x_continuous(NULL) +
       scale_y_continuous(NULL) +
       ggtitle(str_c("Vessel ID:", i))
 
     print(plot)
   }
-  }
+}
 
-vms_plot_tracks(vms)
+vms <-
+  vms_import_data(input.file.name,
+                  country = country,
+                  speed.min = speed.min,
+                  speed.max = speed.max,
+                  date.min = date.min,
+                  date.max = date.max)
+
+if(nrow(vms) == 0) print("No data resulting from the selected input parameters")
+
+if(nrow(vms) > 0) {
+
+  vms_create_shapefile(vms)
+  vms_plot_tracks(vms)
+
+}
 
 ```
