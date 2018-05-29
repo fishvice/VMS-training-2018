@@ -1,0 +1,166 @@
+---
+title: "Summary report"
+output:
+  html_document: default
+  word_document: default
+---
+
+
+```{r}
+country <- "Ghana"  # choices "Ghana", "Liberia", "Sierra Leone"
+
+# Here you need to specifiy the full path name:
+input.file.name <- "/home/julian/Documents/Africa_VMS/data-raw/VMS_data_files_Sierra_Leone/Master VMS Data/sierraLeone_dump.000.csv"
+
+input.file.name <- "/home/julian/Desktop/Ghana_sample.csv"
+
+shapefile.path.name <- "/home/julian/Desktop/"
+
+lon.min <- -15
+lon.max <- 2.5
+
+lat.min <- 3.0
+lat.max <- 10
+
+speed.min <- 2.5
+speed.max <- 4.5
+
+# date should be valid YYYY-MM-DD HH:MM.SS
+date.min <- "2015-01-01 00:00:00"
+date.max <- "2015-01-31 23:59:00"
+
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+# Needed libaries
+library(knitr)
+library(tidyverse)
+library(lubridate)
+library(rio)
+library(sp)
+library(raster)
+library(rgdal)
+
+# Some helper functions
+
+vms_import_data <- function(file.name, country, speed.min, speed.max, date.min, date.max) {
+  
+  if(country == "Ghana") {
+    imp <- import(file.name, setclass="tibble") %>%
+      rename(vid = "Vessel Name",
+             date = Date,
+             lon = Lond,
+             lat = Lat,
+             speed = Speed) %>% 
+      mutate(date = dmy_hm(date),
+             lon = as.numeric(lon),
+             lat = as.numeric(lat),
+             speed = as.numeric(speed),
+             activity = case_when(speed < speed.min ~ paste0("<", speed.min),
+                                  speed < speed.max ~ paste0(speed.min, "-", speed.max),
+                                  TRUE ~ paste0(">", speed.max))) %>% 
+      dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
+      arrange(vid, date)
+      return(imp)
+  }
+
+  if(country == "Sierra Leone") {
+    imp <- import(file.name, setclass="tibble") %>%
+      rename(vid = PublicDeviceID,
+             date = ReceiveTime, # or gpsTime???
+             lon = Lon,
+             lat = Lat,
+             speed = Speed) %>%
+      mutate(lat = as.numeric(str_replace(lat,  ",",  ".")),
+             lon = as.numeric(str_replace(lon,  ",",  ".")),
+             date = str_sub(date, 1, 19),
+             date = ymd_hms(date),
+             speed = as.numeric(speed) * 3600/185200,
+             activity = case_when(speed < speed.min ~ paste0("<", speed.min),
+                                  speed < speed.max ~ paste0(speed.min, "-", speed.max),
+                                  TRUE ~ paste0(">", speed.max))) %>%
+      dplyr::filter(between(date, ymd_hms(date.min), ymd_hms(date.max))) %>%
+      arrange(vid, date)
+      return(imp)
+  }
+
+}
+
+vms <-
+  vms_import_data(input.file.name,
+                  country = country,
+                  speed.min = speed.min,
+                  speed.max = speed.max,
+                  date.min = date.min,
+                  date.max = date.max)
+
+
+vms_create_shapefile <- function(d){
+
+  tracks <- list()
+  ids <- unique(d$vid)
+
+  for(i in 1:length(ids)){
+
+    xy <- d %>%
+      dplyr::filter(vid == ids[i]) %>%
+      dplyr::select(lon, lat)
+    tracks[[i]] <- Lines(list(Line(xy)), ID = i)
+
+  }
+
+  tracks <- SpatialLines(tracks, proj4string = CRS("+proj=longlat +datum=WGS84")) %>%
+    SpatialLinesDataFrame(data = data.frame(vid = ids))
+
+  writeOGR(tracks, shapefile.path.name, "tracks",
+           driver = "ESRI Shapefile",
+           overwrite_layer = TRUE)
+
+}
+
+
+vms_create_shapefile(vms)
+
+vms_plot_tracks <- function(d){
+
+  library(maps)
+  library(mapdata)
+  m <- map_data("worldHires",
+              xlim = range(d$lon),
+              ylim = range(d$lat))
+
+
+  library(viridis)
+
+  ids <- unique(d$vid)
+
+  for(i in ids){
+
+    d2 <- vms %>%
+          dplyr::filter(speed < 15,
+                        vid == i)
+
+    plot <- vms %>%
+      ggplot() +
+      theme_bw(base_size = 16) +
+      geom_polygon(data = m, aes(long, lat, group = group), fill = "grey") +
+      geom_path(data = d2, aes(lon, lat), colour = "grey") +
+      geom_point(data = d2, aes(lon, lat, colour = speed), size = 0.5) +
+      scale_colour_viridis(option = "B", direction = -1) +
+      coord_quickmap(xlim = range(d2$lon), ylim = range(d2$lat)) +
+      scale_x_continuous(NULL) +
+      scale_y_continuous(NULL) +
+      ggtitle(str_c("Vessel ID:", i))
+
+    print(plot)
+  }
+  }
+
+vms_plot_tracks(vms)
+
+```
